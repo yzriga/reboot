@@ -1,0 +1,3 @@
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741776272.mp4,70.29,1.6679272651672363
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741777305.mp4,70.24
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741778158.mp4,70.26

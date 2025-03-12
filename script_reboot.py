@@ -6,41 +6,75 @@ import subprocess
 import sys
 import importlib.util
 import logging
+from ..zap_ayanleh.zap_functions import get_os_version, get_device_model
 
 # Paramètres
 max_wait_time = 180  # Timeout max pour éviter boucle infinie
 result_base_dir = "/home/bytel/IVS/results/"  # Chemin de stockage des résultats
 reference_image_path = "/home/bytel/IVS/function/reboot/ref.png"  # Image de référence du menu
+focus_region = (77, 36, 177, 136)  # (x1, y1, x2, y2) : zone d'intérêt pour la détection
 
-def compare_images(screenshot, template):
-    """ Compare un screenshot avec un template et détecte si un élément est en focus."""
-    threshold = 0.98
+def compare_images(frame, template):
+    """ Compare une image extraite de la vidéo avec le template du logo. """
+    threshold = 0.5
     try:
-        logging.debug("Checking if element is in focus...")
-        reference_image = cv2.imread(template, cv2.IMREAD_GRAYSCALE)
-        grayscale_screenshot = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
-        res = cv2.matchTemplate(grayscale_screenshot, reference_image, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, max_loc = cv2.minMaxLoc(res)
-        if max_val >= threshold:
-            logging.debug("Element is in focus.")
-            return True, max_loc
-        logging.debug("Element is not in focus.")
-        return False, None
+        ref_image = cv2.imread(template, cv2.IMREAD_GRAYSCALE)
+        if ref_image is None:
+            logging.error("Template image non trouvée !")
+            return False
+
+        grayscale_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        x1, y1, x2, y2 = focus_region
+        cropped_frame = grayscale_frame[y1:y2, x1:x2]
+
+        # Log des dimensions
+        logging.debug(f"Dimensions ROI: {cropped_frame.shape}, Dimensions Template: {ref_image.shape}")
+
+        if cropped_frame.shape[0] < ref_image.shape[0] or cropped_frame.shape[1] < ref_image.shape[1]:
+            logging.error("La ROI est plus petite que le template !")
+            return False
+
+        res = cv2.matchTemplate(cropped_frame, ref_image, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(res)
+        logging.debug(f"Similarité détectée : {max_val:.2f}")
+        return max_val >= threshold
     except Exception as e:
-        logging.error(f'Erreur lors de la vérification de l\'élément en focus: {e}')
-        return False, None
+        logging.error(f"Erreur lors de la comparaison : {e}")
+        return False
 
-def get_os_version(ip, timeout=30):
-    try:
-        os_version_result = subprocess.run(
-            ['adb', '-s', f'{ip}:5555', 'shell', 'getprop', 'ro.build.version.incremental'],
-            capture_output=True, text=True, timeout=timeout
-        )
-        os_version = os_version_result.stdout.strip()
-        return os_version
-    except subprocess.TimeoutExpired:
-        print(f"Erreur : Timeout lors de la récupération de la version pour {ip}")
-        return "unknown_version"
+def detect_logo_in_video(video_path):
+    """ Détecte le logo dans une vidéo finalisée """
+    if not os.path.exists(video_path):
+        logging.error(f"Fichier vidéo introuvable : {video_path}")
+        return None
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logging.error(f"Impossible d'ouvrir la vidéo {video_path}")
+        return None
+
+    # Afficher les dimensions de la vidéo
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    logging.debug(f"Dimensions de la vidéo : {width}x{height}")
+
+    frame_count = 0
+    logo_time = None
+    start_time = time.time()
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if frame_count % 10 == 0:
+            if compare_images(frame, reference_image_path):
+                logo_time = time.time() - start_time
+                break
+        frame_count += 1
+
+    cap.release()
+    return logo_time
 
 def wait_for_device(ip, timeout=max_wait_time):
     start_time = time.time()
@@ -57,25 +91,17 @@ def wait_for_device(ip, timeout=max_wait_time):
         time.sleep(5)
     return None
 
-def capture_screenshot(ip):
-    """ Capture un screenshot de l'écran de la box et l'enregistre."""
-    captures_menu_path = "/home/bytel/IVS/function/reboot/captures_menu"
-    device_path = f"/sdcard/menu_{ip}.png"
-    local_path = captures_menu_path + "/menu_" + ip + ".png"
-    logging.debug(f"Capturing screenshot to {local_path}...")
-    subprocess.run(['adb', '-s', f'{ip}:5555', 'shell', 'screencap', device_path])
-    subprocess.run(['adb', '-s', f'{ip}:5555', 'pull', device_path, local_path])
-    return local_path
-
 def measure_boot_time(ip, log_dir, video_source):
     os_version = get_os_version(ip)
-    base_dir = os.path.join(result_base_dir, os_version, "reboot")
+    device_model = get_device_model(ip)
+    base_dir = os.path.join(result_base_dir, f"{device_model}/KPI/{os_version}/reboot")
     os.makedirs(base_dir, exist_ok=True)
     result_file = os.path.join(base_dir, "results.txt")
     timestamp = int(time.time())
     video_filename = os.path.join(base_dir, f"capture_{timestamp}.mp4")
     
-    print("Démarrage de l'enregistrement vidéo avec ffmpeg...")
+    # Étape 1: Enregistrement vidéo
+    logging.debug("Démarrage de l'enregistrement vidéo...")
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-f', 'v4l2', '-framerate', '30',
         '-video_size', '1920x1080', '-i', video_source,
@@ -83,39 +109,42 @@ def measure_boot_time(ip, log_dir, video_source):
     ]
     ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
-    print("Redémarrage de la box...")
+    # Étape 2: Redémarrage
+    logging.debug("Redémarrage de la box...")
     subprocess.run(["adb", "-s", f"{ip}:5555", "reboot"])
     time.sleep(5)
+
     reboot_time = wait_for_device(ip)
     if reboot_time is None:
-        print("Abandon : La box ne s'est pas reconnectée.")
+        logging.error("La box ne s'est pas reconnectée.")
+        ffmpeg_process.terminate()
         return
     
-    print("Attente de la détection du menu...")
-    timeout_start = time.time()
-    while time.time() - timeout_start < max_wait_time:
-        screenshot_path = capture_screenshot(ip)
-        current_screen = cv2.imread(screenshot_path)
-        is_match, _ = compare_images(current_screen, reference_image_path)
-        
-        if is_match:
-            print("Menu détecté, arrêt de la capture vidéo.")
-            break
-        time.sleep(5)
-    
+    # Étape 3: Arrêt propre de FFmpeg
+    logging.debug("Finalisation de l'enregistrement vidéo...")
     ffmpeg_process.terminate()
     ffmpeg_process.wait()
-    print("Enregistrement vidéo terminé.")
+    time.sleep(2)
+    
+    # Étape 4: Détection du logo
+    logging.debug("Détection du logo...")
+    logo_time = detect_logo_in_video(video_filename)
+    
+    # Gestion des résultats
+    if logo_time is not None:
+        logging.debug(f"Logo détecté après {logo_time:.2f}s")
+    else:
+        logging.debug("Logo non détecté")
     
     with open(result_file, 'a') as f:
         f.write(f"{video_filename},{reboot_time:.2f}\n")
-    
-    print("Test terminé.")
-    print(f"Résultats enregistrés dans : {result_file}")
+
+    logging.debug("Test terminé.")
+    logging.debug(f"Résultats enregistrés dans : {result_file}")
 
 def load_config(config_path):
     if not os.path.isfile(config_path):
-        print(f"[ERREUR] Le fichier de configuration {config_path} n'existe pas.")
+        logging.error(f"[ERREUR] Le fichier de configuration {config_path} n'existe pas.")
         sys.exit(1)
     
     spec = importlib.util.spec_from_file_location("config", config_path)
@@ -129,30 +158,26 @@ def main(config, log_dir):
         video_source = config.hdmi 
 
         if not video_source:
-            print("[ERREUR] Aucune source vidéo définie dans le fichier de configuration.")
+            logging.error("[ERREUR] Aucune source vidéo définie dans le fichier de configuration.")
             sys.exit(1)
 
         os.makedirs(log_dir, exist_ok=True)
         measure_boot_time(ip, log_dir, video_source)
     except Exception as e:
-        print(f"Erreur : {e}")
+        logging.error(f"Erreur : {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage : python script.py <chemin_du_fichier_config> <log_dir>")
+        logging.debug("Usage : python script_reboot.py <chemin_du_fichier_config> <log_dir>")
         sys.exit(1)
     
     config_path = sys.argv[1]
     log_dir = sys.argv[2]
     
-    if not os.path.isfile(config_path):
-        print(f"[ERREUR] Le fichier {config_path} est introuvable.")
-        sys.exit(1)
-    
     try:
         config = load_config(config_path)
     except Exception as e:
-        print(f"[ERREUR] Impossible de charger la configuration : {e}")
+        logging.error(f"[ERREUR] Impossible de charger la configuration : {e}")
         sys.exit(1)
     
     main(config, log_dir)
