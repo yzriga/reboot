@@ -6,13 +6,14 @@ import subprocess
 import sys
 import importlib.util
 import logging
-from ..zap_ayanleh.zap_functions import get_os_version, get_device_model
+from ..zap_ayanleh.zap_functions import get_os_version, get_device_model, load_config
 
 # Paramètres
 max_wait_time = 180  # Timeout max pour éviter boucle infinie
 result_base_dir = "/home/bytel/IVS/results/"  # Chemin de stockage des résultats
 reference_image_path = "/home/bytel/IVS/function/reboot/ref.png"  # Image de référence du menu
 focus_region = (77, 36, 177, 136)  # (x1, y1, x2, y2) : zone d'intérêt pour la détection
+expected_kpi = 90.00
 
 def compare_images(frame, template):
     """ Compare une image extraite de la vidéo avec le template du logo. """
@@ -100,6 +101,11 @@ def measure_boot_time(ip, log_dir, video_source):
     timestamp = int(time.time())
     video_filename = os.path.join(base_dir, f"capture_{timestamp}.mp4")
     
+    # Écrire l'entête avec la valeur par défaut 90.00
+    if not os.path.exists(result_file):
+        with open(result_file, 'w') as f:
+            f.write(f"KPI,{expected_kpi}\n")
+
     # Étape 1: Enregistrement vidéo
     logging.debug("Démarrage de l'enregistrement vidéo...")
     ffmpeg_cmd = [
@@ -132,7 +138,8 @@ def measure_boot_time(ip, log_dir, video_source):
     
     # Gestion des résultats
     if logo_time is not None:
-        logging.debug(f"Logo détecté après {logo_time:.2f}s")
+        logging.debug(f"Logo détecté après {logo_time:.2f}s, ajout de 20s de capture supplémentaire...")
+        time.sleep(20)  # Attendre 20 secondes avant d'arrêter la capture
     else:
         logging.debug("Logo non détecté")
     
@@ -141,16 +148,6 @@ def measure_boot_time(ip, log_dir, video_source):
 
     logging.debug("Test terminé.")
     logging.debug(f"Résultats enregistrés dans : {result_file}")
-
-def load_config(config_path):
-    if not os.path.isfile(config_path):
-        logging.error(f"[ERREUR] Le fichier de configuration {config_path} n'existe pas.")
-        sys.exit(1)
-    
-    spec = importlib.util.spec_from_file_location("config", config_path)
-    config = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(config)
-    return config
 
 def main(config, log_dir):
     try:

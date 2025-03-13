@@ -1,3 +1,10 @@
-results/HMB9213NW/KPI/8.30.10/reboot/capture_1741776272.mp4,70.29,1.6679272651672363
-results/HMB9213NW/KPI/8.30.10/reboot/capture_1741777305.mp4,70.24
-results/HMB9213NW/KPI/8.30.10/reboot/capture_1741778158.mp4,70.26
+KPI,90.0
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741787518.mp4,70.24
+KPI,90.0
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741787998.mp4,70.30
+KPI,90.0
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741788097.mp4,70.27
+KPI,90.0
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741788669.mp4,70.25
+KPI,90.0
+results/HMB9213NW/KPI/8.30.10/reboot/capture_1741788937.mp4,70.24
