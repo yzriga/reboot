@@ -1,17 +1,15 @@
 import cv2
 import time
 import os
-import numpy as np
 import subprocess
 import sys
-import importlib.util
 import logging
-from ..zap_ayanleh.zap_functions import get_os_version, get_device_model, load_config
+from ..zap_ayanleh.zap_functions import get_os_version, get_device_model, load_config, connect_adb
 
 # Paramètres
 max_wait_time = 180  # Timeout max pour éviter boucle infinie
-result_base_dir = "/home/bytel/IVS/results/"  # Chemin de stockage des résultats
-reference_image_path = "/home/bytel/IVS/function/reboot/ref.png"  # Image de référence du menu
+result_base_dir = "results/"  # Chemin de stockage des résultats
+reference_image_path = "ref.png"  # Image de référence du menu
 focus_region = (77, 36, 177, 136)  # (x1, y1, x2, y2) : zone d'intérêt pour la détection
 expected_kpi = 90.00
 
@@ -26,7 +24,7 @@ def compare_images(frame, template):
 
         grayscale_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         x1, y1, x2, y2 = focus_region
-        cropped_frame = grayscale_frame[y1:y2, x1:x2]
+        cropped_frame = grayscale_frame[y1-10:y2+10, x1-10:x2+10]
 
         # Log des dimensions
         logging.debug(f"Dimensions ROI: {cropped_frame.shape}, Dimensions Template: {ref_image.shape}")
@@ -45,10 +43,15 @@ def compare_images(frame, template):
 
 def detect_logo_in_video(video_path):
     """ Détecte le logo dans une vidéo finalisée """
+    # Vérifier si le fichier vidéo existe
     if not os.path.exists(video_path):
         logging.error(f"Fichier vidéo introuvable : {video_path}")
         return None
-
+    # Vérifier si l'image de référence existe
+    if reference_image_path is None:
+        logging.error("Erreur : L'image de référence (ref.png) n'a pas été chargée correctement !")
+        return False
+    # Ouvrir la vidéo
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logging.error(f"Impossible d'ouvrir la vidéo {video_path}")
@@ -58,11 +61,11 @@ def detect_logo_in_video(video_path):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     logging.debug(f"Dimensions de la vidéo : {width}x{height}")
-
+    # Initialisation des variables
     frame_count = 0
     logo_time = None
     start_time = time.time()
-    
+    # Parcourir les frames
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -73,11 +76,12 @@ def detect_logo_in_video(video_path):
                 logo_time = time.time() - start_time
                 break
         frame_count += 1
-
+    # Fermer la vidéo
     cap.release()
-    return logo_time
+    return logo_time # Retourne le temps de détection du logo
 
 def wait_for_device(ip, timeout=max_wait_time):
+    """ Attend que le device soit prêt après un redémarrage """
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -93,6 +97,8 @@ def wait_for_device(ip, timeout=max_wait_time):
     return None
 
 def measure_boot_time(ip, log_dir, video_source):
+    """ Mesure le temps de redémarrage de la box """
+    # Initialisation des variables
     os_version = get_os_version(ip)
     device_model = get_device_model(ip)
     base_dir = os.path.join(result_base_dir, f"{device_model}/KPI/{os_version}/reboot")
@@ -114,6 +120,7 @@ def measure_boot_time(ip, log_dir, video_source):
         '-c:v', 'libx264', '-preset', 'ultrafast', video_filename
     ]
     ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(10) # Attendre 10 secondes avant de redémarrer la box
     
     # Étape 2: Redémarrage
     logging.debug("Redémarrage de la box...")
@@ -154,6 +161,7 @@ def main(config, log_dir):
         ip = config.IP
         video_source = config.hdmi 
 
+        connect_adb(ip)
         if not video_source:
             logging.error("[ERREUR] Aucune source vidéo définie dans le fichier de configuration.")
             sys.exit(1)
