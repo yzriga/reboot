@@ -1,2 +1,0 @@
-2025-04-09 09:19:09.077467 - Écran noir détecté pendant plus de 5 secondes
-2025-04-09 09:23:06.370150 - Écran noir détecté pendant plus de 5 secondes
