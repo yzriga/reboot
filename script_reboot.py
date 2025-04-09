@@ -180,6 +180,7 @@ def measure_boot_time(ip, log_dir, video_source):
     
     # Étape 3: Arrêt propre de FFmpeg
     logging.debug("Finalisation de l'enregistrement vidéo...")
+    time.sleep(40)
     ffmpeg_process.terminate()
     ffmpeg_process.wait()
     time.sleep(2)
@@ -196,13 +197,13 @@ def measure_boot_time(ip, log_dir, video_source):
         logging.debug(f"Logo détecté après {logo_time:.2f}s.")
         
         # Étape 5: Détection du flux
-        logging.debug("🎥 Détection du flux dans la vidéo...")
+        logging.debug("Détection du flux dans la vidéo...")
         flux_detecte, stream_time = detect_stream_from_video(
             video_filename, y1=150, y2=563, x1=1025, x2=1868
         )
 
         if flux_detecte:
-            total_reboot_duration = round(time.time() - reboot_start_time + reboot_time, 2)
+            total_reboot_duration = round(time.time() - reboot_start_time + reboot_time - 50, 2)
             logging.debug(f"Flux détecté après {stream_time:.2f}s.")
             logging.debug(f"Temps total de reboot (logo + flux) : {total_reboot_duration:.2f}s")
             time.sleep(10)  # Attente pour capture complémentaire
