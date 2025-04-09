@@ -9,8 +9,8 @@ from ..zap_ayanleh.zap_functions import get_os_version, get_device_model, load_c
 
 # Paramètres
 max_wait_time = 180  # Timeout max pour éviter boucle infinie
-result_base_dir = "results/"  # Chemin de stockage des résultats
-importreference_image_path = "ref.png"  # Image de référence du menu
+result_base_dir = "/home/bytel/IVS/results/"  # Chemin de stockage des résultats
+reference_image_path = "/home/bytel/IVS/function/reboot/ref.png"  # Image de référence du menu
 focus_region = (77, 36, 177, 136)  # (x1, y1, x2, y2) : zone d'intérêt pour la détection
 expected_kpi = 90.00
 
