@@ -1,0 +1,8 @@
+KPI,90.0
+results/HMB9213NW/KPI/8.30.31/reboot/capture_1744186551.mp4,35.27
+results/HMB9213NW/KPI/8.30.31/reboot/capture_1744187380.mp4,35.25
+results/HMB9213NW/KPI/8.30.31/reboot/capture_1744187991.mp4,0.12
+results/HMB9213NW/KPI/8.30.31/reboot/capture_1744188451.mp4,82.36
+results/HMB9213NW/KPI/8.30.31/reboot/capture_1744188656.mp4,82.88
+results/HMB9213NW/KPI/8.30.31/reboot/capture_1744189018.mp4,100.18
+results/HMB9213NW/KPI/8.30.31/reboot/capture_1744194002.mp4,82.62

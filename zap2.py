@@ -13,6 +13,7 @@ import zap_functions
 home_path = os.path.expanduser("~")
 save_path = os.path.join(home_path, "IVS/results/")
 expected_kpi = 3.50
+number_of_zaps = 4
 
 
 def stop_all(capture_hdmi, file, process_ffmpeg, log_f):
@@ -23,7 +24,6 @@ def stop_all(capture_hdmi, file, process_ffmpeg, log_f):
     log_f.close()
     capture_hdmi.release()  
     logging.info("déconnexion réussie")
-
 
 def create_repository(ip, save_path):
     path = save_path + zap_functions.get_device_model(ip) + "/KPI/" + zap_functions.get_os_version(ip) + "/zap/" 
@@ -47,7 +47,7 @@ def write_zap_time(file, filepath, zap_time_taken):
     else:
         file.write(filepath + ', ' + str(zap_time_taken) + "\n")
 
-def zap_routine(ip, capture_hdmi, nb_zapping, save_path, log_dir):
+def zap_routine(ip, capture_hdmi, log_dir):
     # Create repository and file names
     path = create_repository(ip, save_path)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -69,10 +69,12 @@ def zap_routine(ip, capture_hdmi, nb_zapping, save_path, log_dir):
     # Going to the first channel
     subprocess.run(["adb", "-s", ip, "shell", "input", "keyevent", "KEYCODE_HOME"], check=True)
     time.sleep(2)
+    logging.info("commande home entrée...")
     subprocess.run(["adb", "-s", ip, "shell", "input", "keyevent", "KEYCODE_1"], check=True)
     time.sleep(5)
+    logging.info("commande chaine 1 entrée...")
 
-    for channel_number in range(1, nb_zapping+1):
+    for channel_number in range(1, number_of_zaps+1):
         logging.info(f"enregistrement zap entre la chaine {channel_number} et {channel_number+1}...")
         # Changing file name of video
         filename = filename[0:-5] + str(channel_number) + filename[-4:]
@@ -94,9 +96,7 @@ def manage_video(ip, capture_hdmi, process_ffmpeg, log_f, blackscreen_events):
         ret, frame = capture_hdmi.read() 
         if not ret: 
             break 
-            
-        compteur_frames_noires, est_noir = zap_functions.save_frame(frame, process_ffmpeg, log_f, blackscreen_events, compteur_frames_noires, est_noir)
-    
+
         if time.time() - timer >= 5 and status != "zapping": # Check if timer has reached 5 seconds
             if status == "debut_video":
                 # Pressing key in parallel while analysing frames
@@ -105,18 +105,28 @@ def manage_video(ip, capture_hdmi, process_ffmpeg, log_f, blackscreen_events):
                 process.start() 
                 # Using timer to record zapping time
                 timer = time.time() 
+                logging.debug("bouton zap appuyé...")
                 status = "zapping"
 
             if status == "fin_video":
                 break
             
         if status == "zapping":
-            zap_result = detect_zap(frame)
+            if time.time() - timer >= 15 :
+                logging.debug("délai d'attente dépassé...")
+                zap_result = "erreur" 
+                detect_stream.active = False
+                detect_stream.frames_after_detection = 0
+            else :
+                zap_result = detect_zap(frame)
+
             if zap_result in ["flux", "erreur"]:
+                logging.debug("fin temps de zap...")
                 status = "fin_video"
                 zap_time_taken = round(time.time() - timer, 2) if zap_result == "flux" else 0  
                 timer = time.time() # Waiting 5 seconds before ending recording
 
+        compteur_frames_noires, est_noir = zap_functions.save_frame(frame, process_ffmpeg, log_f, blackscreen_events, compteur_frames_noires, est_noir)
     return zap_time_taken
 
 def press_key(ip):
@@ -129,6 +139,7 @@ def detect_zap(frame):
     msg = detect_error(frame)
 
     if detect_stream.active:
+        logging.debug("recherche de flux...")
         if detect_error.on_screen:
             logging.info(msg)
             detect_stream.active = False
@@ -152,7 +163,7 @@ def detect_zap(frame):
 
 
 def detect_stream(frame, first_use=False):
-    cropped_frame = frame[6:278,150:568] 
+    cropped_frame = frame[6:285,150:568] 
     if first_use:
         detect_stream.active = True
         detect_stream.frames_after_detection = 0
@@ -164,7 +175,8 @@ def detect_stream(frame, first_use=False):
     non_identical_pixels = np.sum(difference > 10)
     total_pixels = difference.size
     percentage_difference = (non_identical_pixels / total_pixels) * 100
-    
+    logging.debug(f"Pourcentage de différence entre cette frame et la précédente : {round(percentage_difference,3)}")
+
     if percentage_difference > 5:
         return True
 
@@ -173,23 +185,18 @@ def detect_stream(frame, first_use=False):
 
 
 def detect_logo(frame):
-    # Setting threshold of detection
-    threshold = 0.56 # in percent
-    black_rectangle_expected = 1501584 
-    max_black_rect = black_rectangle_expected * (1 + (threshold / 100)) 
-    min_black_rect = black_rectangle_expected * (1 - (threshold / 100)) 
+    # Checking presence of black areas
+    black_area1 = 0 <= np.average(frame[361:426, 155:463]) < 7.653
+    black_area2 = np.average(frame[79:229, 554:618]) <= 0.1
+    channel_area = np.average(frame[4:475, 12:125]) > 20
 
-    right_arrow_expected = 46735
-    max_arrow = right_arrow_expected * (1 + (threshold / 100))
-    min_arrow = right_arrow_expected * (1 - (threshold / 100))
-
-    # Checking presence of black rectangle and right arrow
-    black_rectangle = min_black_rect < np.sum(frame[323:470, 155:600]) < max_black_rect
-    right_arrow = min_arrow < np.sum(frame[393:421, 600:615]) < max_arrow
     logo_visible = False
+    logging.debug(f"pixels zone noire 1 (attendu ~7.65) : {round(np.average(frame[361:426, 155:463]),2)}")
+    logging.debug(f"pixels zone noire 2 (attendu ~0.09) : {round(np.average(frame[79:229, 554:618]),2)}")
+    logging.debug(f"pixels zone chaines (attendu > 20)  : {round(np.average(frame[4:475, 12:125]),2)}")
 
-    if black_rectangle or right_arrow:
-        # Draw bounding box on logo if present
+    if black_area1 and black_area2 and channel_area:
+        # Check presence of channel logo
         gray = cv2.cvtColor(frame[6:283,141:568],cv2.COLOR_BGR2GRAY)
         thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)[1]
 
@@ -197,8 +204,8 @@ def detect_logo(frame):
         contours = contours[0] if len(contours) == 2 else contours[1]
         logo_visible = len(contours) > 0
 
-    if (black_rectangle and right_arrow) or (right_arrow and logo_visible):
-        return True
+        if logo_visible:
+            return True
 
     return False
 
@@ -206,13 +213,29 @@ def detect_logo(frame):
 def detect_error(frame):
     detect_error.on_screen = False
     # Check if error screen is present
-    blue_rectangle = np.sum(frame[315:399, 374:411]) == 648536
-    red_rectangle = np.sum(frame[411:473, 374:395]) == 283836
+    blue_expected = np.array([103.5, 75.5, 29.7])
+    red_expected = np.array([52, 50, 116])
+    threshold = 20
+    # Average pixel value on the blue and red area
+    mean_color_blue = cv2.mean(frame[315:399, 374:411])
+    logging.debug(f"rectangle bleu erreur : {mean_color_blue[:3]}")
+    mean_color_red = cv2.mean(frame[411:473, 374:395])
+    logging.debug(f"rectangle rouge erreur : {mean_color_red[:3]}")
+
+    distance_blue = np.abs(blue_expected - mean_color_blue[:3])
+    distance_red = np.abs(red_expected - mean_color_red[:3])
+
+    blue_rectangle = np.all(distance_blue < threshold)
+    red_rectangle =  np.all(distance_red < threshold)
+
+    logging.debug(f"zone rouge -> {red_rectangle} / zone bleue -> {blue_rectangle}")
 
     if blue_rectangle and red_rectangle:
         # Retrieve error text
-        top_text = pytesseract.image_to_string(frame[14:96, 382:632])
-        bottom_text = pytesseract.image_to_string(frame[414:474, 382:632])
+        img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        resize_frame = cv2.resize(img_rgb[414:474, 382:632], None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
+        top_text = pytesseract.image_to_string(img_rgb[14:96, 382:632])
+        bottom_text = pytesseract.image_to_string(resize_frame)
         error_code = bottom_text[bottom_text.find(':') + 1:bottom_text.find('\n')].strip()
         top_text = top_text.replace("\n", " ").strip()
         
@@ -222,10 +245,11 @@ def detect_error(frame):
 
     return None
 
+
     
 def main(config, log_dir):
     # Checking the configuration file
-    attributes = ["IP", "hdmi", "number_of_zaps"]
+    attributes = ["IP", "hdmi"]
     all_attributes_exist = all(hasattr(config, attr) for attr in attributes)
     
     if not all_attributes_exist:
@@ -235,9 +259,9 @@ def main(config, log_dir):
     zap_functions.connect_adb(config.IP)
     detect_stream.active = False
     detect_stream.frames_after_detection = 0
-        
     capture_hdmi = setup_capture_hdmi(config.hdmi)
-    zap_routine(config.IP, capture_hdmi, config.number_of_zaps, save_path, log_dir)
+
+    zap_routine(config.IP, capture_hdmi, log_dir)
 
 if __name__ == "__main__":
     # Checking CLI arguments 
@@ -253,6 +277,8 @@ if __name__ == "__main__":
         sys.exit(1)
     
     try:
+        logging.debug(f"Fichier de configuration utilisé : {config_path}")
+        logging.debug(f"Enregistrement des logs dans {log_dir}")
         config = zap_functions.load_config(config_path)
     except Exception as e:
         print(f"[ERREUR] Impossible de charger la configuration : {e}")

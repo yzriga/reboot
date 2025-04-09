@@ -4,12 +4,13 @@ import os
 import subprocess
 import sys
 import logging
+import numpy as np
 from ..zap_ayanleh.zap_functions import get_os_version, get_device_model, load_config, connect_adb
 
 # Paramètres
 max_wait_time = 180  # Timeout max pour éviter boucle infinie
-result_base_dir = "/home/bytel/IVS/results/"  # Chemin de stockage des résultats
-reference_image_path = "/home/bytel/IVS/function/reboot/ref.png"  # Image de référence du menu
+result_base_dir = "results/"  # Chemin de stockage des résultats
+importreference_image_path = "ref.png"  # Image de référence du menu
 focus_region = (77, 36, 177, 136)  # (x1, y1, x2, y2) : zone d'intérêt pour la détection
 expected_kpi = 90.00
 
@@ -80,6 +81,49 @@ def detect_logo_in_video(video_path):
     cap.release()
     return logo_time # Retourne le temps de détection du logo
 
+def detect_stream_from_video(video_path, y1, y2, x1, x2, seuil_diff=5, frames_consecutives=20):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print("Erreur d'ouverture vidéo")
+        return False, None
+
+    ret, frame = cap.read()
+    if not ret:
+        print("Erreur lecture première frame")
+        return False, None
+
+    zone_precedente = frame[y1:y2, x1:x2]
+    compteur = 0
+    start_time = time.time()
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        zone_courante = frame[y1:y2, x1:x2]
+
+        if zone_courante.shape != zone_precedente.shape:
+            zone_precedente = zone_courante
+            continue
+
+        difference = cv2.absdiff(zone_courante, zone_precedente)
+        non_identiques = np.sum(difference > 10)
+        total = difference.size
+        pourcentage = (non_identiques / total) * 100
+
+        if pourcentage > seuil_diff:
+            compteur += 1
+            if compteur >= frames_consecutives:
+                temps_detection = time.time() - start_time
+                return True, round(temps_detection, 2)
+        else:
+            compteur = 0
+
+        zone_precedente = zone_courante
+
+    return False, None
+
 def wait_for_device(ip, timeout=max_wait_time):
     """ Attend que le device soit prêt après un redémarrage """
     start_time = time.time()
@@ -123,6 +167,7 @@ def measure_boot_time(ip, log_dir, video_source):
     time.sleep(10) # Attendre 10 secondes avant de redémarrer la box
     
     # Étape 2: Redémarrage
+    reboot_start_time = time.time()
     logging.debug("Redémarrage de la box...")
     subprocess.run(["adb", "-s", f"{ip}:5555", "reboot"])
     time.sleep(5)
@@ -143,15 +188,34 @@ def measure_boot_time(ip, log_dir, video_source):
     logging.debug("Détection du logo...")
     logo_time = detect_logo_in_video(video_filename)
     
+    # Initialisation du temps total
+    total_reboot_duration = None
+
     # Gestion des résultats
     if logo_time is not None:
-        logging.debug(f"Logo détecté après {logo_time:.2f}s, ajout de 20s de capture supplémentaire...")
-        time.sleep(20)  # Attendre 20 secondes avant d'arrêter la capture
+        logging.debug(f"Logo détecté après {logo_time:.2f}s.")
+        
+        # Étape 5: Détection du flux
+        logging.debug("🎥 Détection du flux dans la vidéo...")
+        flux_detecte, stream_time = detect_stream_from_video(
+            video_filename, y1=150, y2=563, x1=1025, x2=1868
+        )
+
+        if flux_detecte:
+            total_reboot_duration = round(time.time() - reboot_start_time + reboot_time, 2)
+            logging.debug(f"Flux détecté après {stream_time:.2f}s.")
+            logging.debug(f"Temps total de reboot (logo + flux) : {total_reboot_duration:.2f}s")
+            time.sleep(10)  # Attente pour capture complémentaire
+        else:
+            logging.debug("Flux non détecté.")
     else:
-        logging.debug("Logo non détecté")
+        logging.debug("Logo non détecté.")
     
     with open(result_file, 'a') as f:
-        f.write(f"{video_filename},{reboot_time:.2f}\n")
+        if total_reboot_duration is not None:
+            f.write(f"{video_filename},{total_reboot_duration:.2f}\n")
+        else:
+            f.write(f"{video_filename},{expected_kpi}\n")
 
     logging.debug("Test terminé.")
     logging.debug(f"Résultats enregistrés dans : {result_file}")

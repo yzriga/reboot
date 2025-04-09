@@ -255,17 +255,18 @@ def setup_ffmpeg(frame_height, frame_width, frame_rate, video_name):
 
 
 def save_frame(frame, ffmpeg_process, log_f, blackscreen_events, compteur_frames_noires, est_noir):
+    frame_copy = frame.copy()
     frame_rate = 30
     seuil_frames_noires = frame_rate * 5  # Seuil pour 5 secondes de frames noires
     # Ajouter l'heure actuelle à la frame
     heure_actuelle = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    cv2.putText(frame, heure_actuelle, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(frame_copy, heure_actuelle, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
 
     # Envoyer la frame à ffmpeg pour l'enregistrement
-    ffmpeg_process.stdin.write(frame.tobytes())
+    ffmpeg_process.stdin.write(frame_copy.tobytes())
 
     # Convertir la frame en niveaux de gris
-    gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gris = cv2.cvtColor(frame_copy, cv2.COLOR_BGR2GRAY)
 
     # Vérifier si la frame est noire
     if np.mean(gris) < 10:  # Ce seuil peut nécessiter un ajustement
