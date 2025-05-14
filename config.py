@@ -1,3 +1,11 @@
 hdmi = "/dev/video2"
 IP = "192.168.1.81"
-PDU =""
+STB = "Orange"
+serial = "214024410200622"
+servid = ""
+Zapette = "192.168.11.45 2"
+PDU = "192.168.11.144 1.3.6.1.4.1.318.1.1.26.9.2.4.1.5.1"
+PDU_STATUT = "On"
+LAST_STOP_REASON = "N/A"
+lien = "/home/bytel/IVS/results/UZW4020BYT/8.30.43_214021113554404_7AB_test_20250401_1459"
+PID_FFMPEG=746677
